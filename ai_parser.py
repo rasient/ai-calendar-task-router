@@ -22,8 +22,14 @@ def parse_task_to_event(task_text, client=None, timezone="Europe/Budapest", defa
     if not client:
         return fallback_parse(task_text, timezone, default_duration)
 
+    now = datetime.now(ZoneInfo(timezone)).isoformat()
+
     prompt = f"""
 You convert user tasks into calendar events.
+
+Current datetime: {now}
+Timezone: {timezone}
+Default duration: {default_duration} minutes.
 
 Return ONLY valid JSON:
 {{
@@ -34,10 +40,11 @@ Return ONLY valid JSON:
   "location": ""
 }}
 
-Timezone: {timezone}
-Default duration: {default_duration} minutes.
-If no time is provided, choose 09:00.
-Keep title short.
+Rules:
+- Resolve relative dates using the current datetime.
+- If no time is provided, choose 09:00.
+- Keep title short.
+- Do not invent attendees.
 
 Task:
 {task_text}
@@ -64,7 +71,6 @@ Task:
 
 def fallback_analysis(task_text, default_duration=30):
     lowered = task_text.lower()
-
     recurrence_detected = any(word in lowered for word in ["minden", "every", "hetente", "naponta", "weekly", "daily"])
     deadline = "detected" if any(word in lowered for word in ["péntek", "holnap", "deadline", "ig", "by"]) else ""
     priority = "high" if any(word in lowered for word in ["fontos", "urgent", "sürgős", "deadline"]) else "medium"

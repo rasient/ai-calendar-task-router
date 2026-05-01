@@ -38,21 +38,3 @@ def save_event(event, source="local"):
 
 def list_events():
     return _read()
-
-
-def update_event_record(event_id, updates):
-    data = _read()
-    for record in data:
-        if record["id"] == event_id:
-            record.update(updates)
-            record["updated_at"] = datetime.utcnow().isoformat()
-            _write(data)
-            return record
-    return None
-
-
-def delete_event_record(event_id):
-    data = _read()
-    new_data = [record for record in data if record["id"] != event_id]
-    _write(new_data)
-    return len(data) != len(new_data)

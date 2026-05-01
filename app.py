@@ -6,87 +6,101 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from ai_parser import parse_task_to_event, analyze_task_system
-from calendar_service import create_ics_file
-from routing import route_task
 from analytics import initialize_analytics, record_event_created, record_suggestion, get_analytics_summary
-from database import initialize_database, save_event, list_events, update_event_record, delete_event_record
-from preferences import load_preferences, save_preferences
-from google_calendar_stub import create_google_calendar_event_stub, update_google_calendar_event_stub, delete_google_calendar_event_stub
-from oauth_stub import show_oauth_status
+from calendar_service import create_ics_file
+from database import initialize_database, save_event, list_events
+from google_calendar_service import (
+    get_google_auth_status,
+    start_google_oauth,
+    complete_google_oauth,
+    list_calendars,
+    create_google_calendar_event,
+)
+from routing import route_task
 
 
 load_dotenv()
 
-st.set_page_config(page_title="AI Calendar Task Router Pro Prototype", page_icon="📅", layout="wide")
+st.set_page_config(
+    page_title="AI Calendar Task Router",
+    page_icon="📅",
+    layout="wide",
+)
 
-st.title("📅 AI Calendar Task Router — Production Prototype")
-st.write("Task text → AI understanding → review → .ics export / Google Calendar integration scaffold")
+st.title("📅 AI Calendar Task Router — Real Google Calendar")
+st.write("Task text → AI parse → human review → .ics export or real Google Calendar insert")
 
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key) if api_key else None
 
 initialize_database()
 initialize_analytics()
-prefs = load_preferences()
 
 with st.sidebar:
     st.header("Settings")
-
-    timezone = st.selectbox(
-        "Timezone",
-        ["Europe/Budapest", "UTC"],
-        index=0 if prefs.get("timezone", "Europe/Budapest") == "Europe/Budapest" else 1,
-    )
-
-    default_duration = st.slider(
-        "Default duration in minutes",
-        15,
-        180,
-        int(prefs.get("default_duration", 30)),
-        step=15,
-    )
-
-    confidence_threshold = st.slider(
-        "Auto-create confidence threshold",
-        0.50,
-        0.99,
-        float(prefs.get("confidence_threshold", 0.85)),
-        step=0.01,
-    )
-
-    working_hours_start = st.time_input("Working hours start", value=prefs.get("working_hours_start"))
-    working_hours_end = st.time_input("Working hours end", value=prefs.get("working_hours_end"))
-
-    if st.button("Save preferences"):
-        save_preferences({
-            "timezone": timezone,
-            "default_duration": default_duration,
-            "confidence_threshold": confidence_threshold,
-            "working_hours_start": working_hours_start,
-            "working_hours_end": working_hours_end,
-        })
-        st.success("Preferences saved.")
+    timezone = st.selectbox("Timezone", ["Europe/Budapest", "UTC"], index=0)
+    default_duration = st.slider("Default duration in minutes", 15, 180, 30, step=15)
+    confidence_threshold = st.slider("Automation confidence threshold", 0.50, 0.99, 0.85, step=0.01)
 
 tabs = st.tabs([
-    "📥 Task Router",
-    "📅 Google Calendar Scaffold",
+    "📥 Task → Calendar",
+    "🔐 Google OAuth",
     "🗃️ Event Database",
-    "📨 Gmail / Email Intake",
-    "🎤 Voice Prototype",
-    "🤖 Automation Control",
     "📊 Analytics",
-    "📱 Mobile UI",
 ])
 
+with tabs[1]:
+    st.subheader("🔐 Google Calendar OAuth")
+
+    status = get_google_auth_status()
+    st.json(status)
+
+    if not status["credentials_json_found"]:
+        st.error(
+            "Missing credentials.json. Download OAuth Desktop credentials from Google Cloud "
+            "and place credentials.json in the project folder."
+        )
+
+    if status["credentials_json_found"]:
+        if st.button("1️⃣ Start Google OAuth"):
+            auth_url = start_google_oauth()
+            st.session_state["google_auth_started"] = True
+            st.markdown("Open this URL, approve access, then paste the full redirected URL below:")
+            st.code(auth_url, language="text")
+
+        redirected_url = st.text_input(
+            "2️⃣ Paste redirected URL after Google approval",
+            placeholder="http://localhost:8501/?state=...&code=...&scope=...",
+        )
+
+        if st.button("3️⃣ Complete OAuth and save token"):
+            if not redirected_url.strip():
+                st.warning("Paste the redirected URL first.")
+            else:
+                result = complete_google_oauth(redirected_url)
+                st.success("OAuth completed. token.json saved.")
+                st.json(result)
+
+    if status["token_json_found"]:
+        st.success("Google token is available. You can insert events into Google Calendar.")
+
+        try:
+            calendars = list_calendars()
+            st.subheader("Available calendars")
+            st.json(calendars)
+        except Exception as e:
+            st.warning(f"Could not list calendars yet: {e}")
+
 with tabs[0]:
-    st.subheader("📥 Task Router")
+    st.subheader("📥 Task → Calendar")
+
     task_text = st.text_area(
         "Task / teendő",
         "Holnap 10-kor küldjem el Katának a videót és kérjek visszajelzést.",
         height=140,
     )
 
-    if st.button("Analyze, route and prepare event"):
+    if st.button("🧠 Analyze and prepare event"):
         analysis = analyze_task_system(task_text, client, timezone, default_duration)
         route = route_task(task_text, analysis)
         parsed = parse_task_to_event(task_text, client, timezone, default_duration)
@@ -102,12 +116,14 @@ with tabs[0]:
         st.json(st.session_state["analysis"])
 
     if "route" in st.session_state:
-        st.markdown("### Route decision")
+        st.markdown("### Routing decision")
         st.json(st.session_state["route"])
 
     if "event" in st.session_state:
         event = st.session_state["event"]
-        st.markdown("### Review event")
+
+        st.markdown("### Review before execution")
+        st.info("Review-first design: AI suggests → human reviews → user approves → event is created.")
 
         edited_event = {
             "title": st.text_input("Title", event.get("title", "")),
@@ -117,174 +133,63 @@ with tabs[0]:
             "location": st.text_input("Location", event.get("location", "")),
         }
 
-        col_a, col_b, col_c = st.columns(3)
+        calendar_id = "primary"
 
-        with col_a:
+        if get_google_auth_status()["token_json_found"]:
+            try:
+                calendars = list_calendars()
+                calendar_options = {
+                    f"{cal.get('summary', cal.get('id'))} ({cal.get('id')})": cal.get("id")
+                    for cal in calendars
+                }
+                selected_calendar = st.selectbox("Google Calendar", list(calendar_options.keys()))
+                calendar_id = calendar_options[selected_calendar]
+            except Exception:
+                calendar_id = "primary"
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
             if st.button("Create .ics"):
                 out = Path("generated/calendar_event.ics")
                 create_ics_file(edited_event, out)
                 save_event(edited_event, source="ics")
                 record_event_created(edited_event)
+
                 with open(out, "rb") as f:
                     st.download_button("Download .ics", f, "calendar_event.ics", "text/calendar")
 
-        with col_b:
+        with col2:
             if st.button("Save to local DB"):
-                save_event(edited_event, source="local_db")
-                st.success("Saved to local database.")
+                saved = save_event(edited_event, source="local_db")
+                st.success("Saved locally.")
+                st.json(saved)
 
-        with col_c:
-            if st.button("Google Calendar insert scaffold"):
-                result = create_google_calendar_event_stub(edited_event)
-                st.json(result)
-
-with tabs[1]:
-    st.subheader("📅 Google Calendar Integration Scaffold")
-    show_oauth_status()
-
-    st.markdown("""
-This tab implements the production integration structure without forcing OAuth setup yet.
-
-Production flow:
-
-```txt
-OAuth login
-→ choose calendar
-→ events.insert
-→ store Google event ID
-→ allow update/delete
-```
-""")
-
-    sample = {
-        "title": "Sample Google Calendar event",
-        "start": "2026-05-02T10:00:00+02:00",
-        "end": "2026-05-02T10:30:00+02:00",
-        "description": "Google Calendar integration scaffold.",
-        "location": "",
-    }
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("Simulate events.insert"):
-            st.json(create_google_calendar_event_stub(sample))
-
-    with col2:
-        if st.button("Simulate events.update"):
-            st.json(update_google_calendar_event_stub("fake_google_event_id", sample))
-
-    with col3:
-        if st.button("Simulate events.delete"):
-            st.json(delete_google_calendar_event_stub("fake_google_event_id"))
+        with col3:
+            if st.button("Insert into Google Calendar"):
+                if not get_google_auth_status()["token_json_found"]:
+                    st.error("Google OAuth is not completed yet. Go to the Google OAuth tab first.")
+                else:
+                    created = create_google_calendar_event(edited_event, calendar_id=calendar_id)
+                    save_event(
+                        {
+                            **edited_event,
+                            "google_event_id": created.get("id"),
+                            "google_html_link": created.get("htmlLink"),
+                        },
+                        source="google_calendar",
+                    )
+                    record_event_created(edited_event)
+                    st.success("Created in Google Calendar.")
+                    st.json(created)
+                    if created.get("htmlLink"):
+                        st.markdown(f"[Open event in Google Calendar]({created['htmlLink']})")
 
 with tabs[2]:
-    st.subheader("🗃️ Persistent Local Event Database")
-    st.write("This is the production-ready direction for tracking created, updated, skipped and reviewed events.")
-
+    st.subheader("🗃️ Local Event Database")
     events = list_events()
     st.dataframe(events, use_container_width=True)
 
-    if events:
-        selected_id = st.selectbox("Select event ID", [event["id"] for event in events])
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("Mark selected as updated"):
-                update_event_record(selected_id, {"status": "updated"})
-                st.success("Updated.")
-
-        with col2:
-            if st.button("Delete selected locally"):
-                delete_event_record(selected_id)
-                st.success("Deleted locally.")
-
 with tabs[3]:
-    st.subheader("📨 Gmail / Email Intake Prototype")
-    email_text = st.text_area(
-        "Paste email or message",
-        "Szia Alexander, köszi a videót! Tudnánk holnap 11-kor 20 percet beszélni róla?",
-        height=160,
-    )
-
-    if st.button("Extract calendar follow-up"):
-        parsed = parse_task_to_event(email_text, client, timezone, default_duration)
-        analysis = analyze_task_system(email_text, client, timezone, default_duration)
-        st.json({
-            "parsed_event": parsed,
-            "analysis": analysis,
-            "source": "email_paste",
-            "next_production_step": "Connect Gmail API and pull selected messages into this parser.",
-        })
-
-with tabs[4]:
-    st.subheader("🎤 Voice Input Prototype")
-    st.write("Real browser voice recording is a future production layer. Current version accepts dictated text.")
-
-    dictated_text = st.text_input(
-        "Paste dictated task",
-        "Holnap délután 3-kor nézzem át a GitHub README-t.",
-    )
-
-    if st.button("Parse dictated task"):
-        st.json(parse_task_to_event(dictated_text, client, timezone, default_duration))
-
-with tabs[5]:
-    st.subheader("🤖 Controlled Automation")
-    automation_task = st.text_area(
-        "Task for confidence decision",
-        "Holnap 10-kor küldjem el Katának a videót.",
-        height=100,
-    )
-
-    if st.button("Evaluate automation"):
-        analysis = analyze_task_system(automation_task, client, timezone, default_duration)
-        confidence = float(analysis.get("confidence", 0.65))
-
-        if confidence >= confidence_threshold:
-            decision = "Eligible for auto-create in production"
-        else:
-            decision = "Manual review required"
-
-        st.json({
-            "confidence": confidence,
-            "threshold": confidence_threshold,
-            "decision": decision,
-            "safety_rule": "This prototype still keeps user approval before execution.",
-        })
-
-with tabs[6]:
     st.subheader("📊 Analytics")
-    summary = get_analytics_summary()
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Events created", summary.get("events_created", 0))
-    c2.metric("Suggestions", summary.get("suggestions", 0))
-    c3.metric("Last title", summary.get("last_title", "-"))
-    c4.metric("Mode", "Review-first")
-
-    st.json(summary)
-
-with tabs[7]:
-    st.subheader("📱 Mobile-first UI Prototype")
-    st.write("This tab approximates the mobile quick-add workflow.")
-
-    st.markdown("""
-### Quick-add flow
-
-```txt
-Open app
-→ type/speak task
-→ AI suggests calendar event
-→ swipe/approve
-→ event created
-```
-""")
-
-    quick_task = st.text_input("Quick task", "Holnap 9-kor reggeli tervezés.")
-    if st.button("Mobile quick parse"):
-        st.json(parse_task_to_event(quick_task, client, timezone, default_duration))
-
-st.divider()
-st.caption("Production principle: AI suggests → human reviews → user approves → system executes.")
+    st.json(get_analytics_summary())

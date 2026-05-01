@@ -1,82 +1,66 @@
-# 📅 AI Calendar Task Router — Production Prototype
+# 📅 AI Calendar Task Router — Real Google Calendar
 
-This version turns the “Recommended next production features” into real app modules and working prototypes.
+This version implements real Google Calendar OAuth and `events.insert`.
 
-## Included production-feature prototypes
+## Features
 
-### Google Calendar API scaffold
-- OAuth status panel
-- `events.insert` payload preview
-- update/delete stubs
-- clear next step for OAuth
+- AI task parsing
+- Human review step
+- Download `.ics`
+- Real Google Calendar OAuth
+- Real Google Calendar event insertion
+- Calendar selection
+- Local event database
+- Analytics
 
-### Persistent local database
-- saves created/reviewed events into local JSON storage
-- lists events
-- update/delete local event records
+## Google Calendar setup
 
-### User preferences
-- timezone
-- default duration
-- confidence threshold
-- working hours
-
-### Gmail / Email intake
-- paste an email/message
-- extract a calendar-ready follow-up event
-
-### Voice input prototype
-- supports dictated text
-- documents future voice-to-calendar flow
-
-### Controlled automation
-- confidence threshold
-- low confidence → manual review
-- high confidence → eligible for auto-create
-- still review-first for safety
-
-### Analytics
-- event creation count
-- suggestion count
-- route distribution
-- last created event
-
-## Safe architecture
-
-```txt
-AI suggests → human reviews → user approves → system executes
-```
-
-## Install
-
-```bash
-pip install -r requirements.txt
-```
+1. Go to Google Cloud Console
+2. Create a project
+3. Enable Google Calendar API
+4. Configure OAuth consent screen
+5. Create OAuth Client ID
+6. Choose Desktop app
+7. Download the file as `credentials.json`
+8. Put `credentials.json` in the project folder
 
 ## Run
 
 ```bash
+pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-## Environment
+## OAuth flow
 
-Create `.env`:
+1. Open the app
+2. Go to Google OAuth tab
+3. Click Start Google OAuth
+4. Open the authorization URL
+5. Approve calendar access
+6. Copy the redirected URL from browser
+7. Paste it back into the app
+8. Click Complete OAuth
 
-```env
-OPENAI_API_KEY=your_openai_api_key_here
+This creates `token.json`.
+
+## Safety principle
+
+```txt
+AI suggests → human reviews → user approves → event is created
 ```
 
-## Future real production step
+## Important
 
-To activate direct Google Calendar creation:
+Do not commit:
 
-1. Create Google Cloud project
-2. Enable Google Calendar API
-3. Configure OAuth consent screen
-4. Download `credentials.json`
-5. Implement `google-auth-oauthlib`
-6. Replace stubs with real `events.insert`, `events.update`, `events.delete`
+```txt
+credentials.json
+token.json
+.env
+```
+
+They are already in `.gitignore`.
 
 ## Author
 
