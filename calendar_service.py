@@ -15,6 +15,7 @@ def _escape(value):
 
 def create_ics_file(event, output_path):
     output_path = Path(output_path)
+    output_path.parent.mkdir(exist_ok=True)
 
     title = _escape(event.get("title", "Untitled event"))
     description = _escape(event.get("description", ""))
@@ -24,7 +25,7 @@ def create_ics_file(event, output_path):
     end = _ics_datetime(event["end"])
     uid = f"{uuid4()}@ai-calendar-task-router"
 
-    ics = f'''BEGIN:VCALENDAR
+    ics = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//AI Calendar Task Router//EN
 BEGIN:VEVENT
@@ -37,7 +38,7 @@ DESCRIPTION:{description}
 LOCATION:{location}
 END:VEVENT
 END:VCALENDAR
-'''
+"""
 
     output_path.write_text(ics, encoding="utf-8")
     return output_path

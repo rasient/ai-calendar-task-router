@@ -8,208 +8,283 @@ from openai import OpenAI
 from ai_parser import parse_task_to_event, analyze_task_system
 from calendar_service import create_ics_file
 from routing import route_task
-from analytics import initialize_analytics, record_event_created, get_analytics_summary
+from analytics import initialize_analytics, record_event_created, record_suggestion, get_analytics_summary
+from database import initialize_database, save_event, list_events, update_event_record, delete_event_record
+from preferences import load_preferences, save_preferences
+from google_calendar_stub import create_google_calendar_event_stub, update_google_calendar_event_stub, delete_google_calendar_event_stub
+from oauth_stub import show_oauth_status
 
 
 load_dotenv()
 
-st.set_page_config(page_title="AI Calendar Task Router", page_icon="📅", layout="wide")
+st.set_page_config(page_title="AI Calendar Task Router Pro Prototype", page_icon="📅", layout="wide")
 
-st.title("📅 AI Calendar Task Router")
-st.write("Task text → AI parse → human review → calendar-ready output")
+st.title("📅 AI Calendar Task Router — Production Prototype")
+st.write("Task text → AI understanding → review → .ics export / Google Calendar integration scaffold")
 
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key) if api_key else None
 
+initialize_database()
 initialize_analytics()
+prefs = load_preferences()
 
 with st.sidebar:
     st.header("Settings")
-    timezone = st.selectbox("Timezone", ["Europe/Budapest", "UTC"], index=0)
-    default_duration = st.slider("Default duration in minutes", 15, 180, 30, step=15)
-    confidence_threshold = st.slider("Auto-create confidence threshold", 0.50, 0.99, 0.85, step=0.01)
-    st.caption("Current version still requires review before .ics export.")
+
+    timezone = st.selectbox(
+        "Timezone",
+        ["Europe/Budapest", "UTC"],
+        index=0 if prefs.get("timezone", "Europe/Budapest") == "Europe/Budapest" else 1,
+    )
+
+    default_duration = st.slider(
+        "Default duration in minutes",
+        15,
+        180,
+        int(prefs.get("default_duration", 30)),
+        step=15,
+    )
+
+    confidence_threshold = st.slider(
+        "Auto-create confidence threshold",
+        0.50,
+        0.99,
+        float(prefs.get("confidence_threshold", 0.85)),
+        step=0.01,
+    )
+
+    working_hours_start = st.time_input("Working hours start", value=prefs.get("working_hours_start"))
+    working_hours_end = st.time_input("Working hours end", value=prefs.get("working_hours_end"))
+
+    if st.button("Save preferences"):
+        save_preferences({
+            "timezone": timezone,
+            "default_duration": default_duration,
+            "confidence_threshold": confidence_threshold,
+            "working_hours_start": working_hours_start,
+            "working_hours_end": working_hours_end,
+        })
+        st.success("Preferences saved.")
 
 tabs = st.tabs([
     "📥 Task Router",
-    "🔁 Recurring Tasks",
-    "🧠 Smart Understanding",
-    "📨 Email → Calendar",
-    "🎤 Voice Input",
-    "🤖 Controlled Automation",
+    "📅 Google Calendar Scaffold",
+    "🗃️ Event Database",
+    "📨 Gmail / Email Intake",
+    "🎤 Voice Prototype",
+    "🤖 Automation Control",
     "📊 Analytics",
+    "📱 Mobile UI",
 ])
 
 with tabs[0]:
     st.subheader("📥 Task Router")
-    st.write("Routes messy human intention into the right system: calendar, todo, reminder, or note.")
-
     task_text = st.text_area(
         "Task / teendő",
         "Holnap 10-kor küldjem el Katának a videót és kérjek visszajelzést.",
         height=140,
-        key="main_task_text",
     )
 
-    if st.button("🧠 Analyze and route task"):
-        st.session_state["system_analysis"] = analyze_task_system(task_text, client, timezone, default_duration)
-        st.session_state["route_result"] = route_task(task_text, st.session_state["system_analysis"])
-        st.session_state["parsed_event"] = parse_task_to_event(task_text, client, timezone, default_duration)
+    if st.button("Analyze, route and prepare event"):
+        analysis = analyze_task_system(task_text, client, timezone, default_duration)
+        route = route_task(task_text, analysis)
+        parsed = parse_task_to_event(task_text, client, timezone, default_duration)
 
-    if "route_result" in st.session_state:
-        st.markdown("### Routing result")
-        st.json(st.session_state["route_result"])
+        record_suggestion(route)
 
-    if "parsed_event" in st.session_state:
-        event = st.session_state["parsed_event"]
+        st.session_state["analysis"] = analysis
+        st.session_state["route"] = route
+        st.session_state["event"] = parsed
 
-        st.markdown("### Review calendar event")
-        st.json(event)
+    if "analysis" in st.session_state:
+        st.markdown("### Smart understanding")
+        st.json(st.session_state["analysis"])
 
-        title = st.text_input("Title", event.get("title", "Untitled task"))
-        start = st.text_input("Start ISO datetime", event.get("start", ""))
-        end = st.text_input("End ISO datetime", event.get("end", ""))
-        description = st.text_area("Description", event.get("description", ""), height=120)
-        location = st.text_input("Location", event.get("location", ""))
+    if "route" in st.session_state:
+        st.markdown("### Route decision")
+        st.json(st.session_state["route"])
 
-        reviewed_event = {
-            "title": title,
-            "start": start,
-            "end": end,
-            "description": description,
-            "location": location,
+    if "event" in st.session_state:
+        event = st.session_state["event"]
+        st.markdown("### Review event")
+
+        edited_event = {
+            "title": st.text_input("Title", event.get("title", "")),
+            "start": st.text_input("Start ISO datetime", event.get("start", "")),
+            "end": st.text_input("End ISO datetime", event.get("end", "")),
+            "description": st.text_area("Description", event.get("description", ""), height=120),
+            "location": st.text_input("Location", event.get("location", "")),
         }
+
+        col_a, col_b, col_c = st.columns(3)
+
+        with col_a:
+            if st.button("Create .ics"):
+                out = Path("generated/calendar_event.ics")
+                create_ics_file(edited_event, out)
+                save_event(edited_event, source="ics")
+                record_event_created(edited_event)
+                with open(out, "rb") as f:
+                    st.download_button("Download .ics", f, "calendar_event.ics", "text/calendar")
+
+        with col_b:
+            if st.button("Save to local DB"):
+                save_event(edited_event, source="local_db")
+                st.success("Saved to local database.")
+
+        with col_c:
+            if st.button("Google Calendar insert scaffold"):
+                result = create_google_calendar_event_stub(edited_event)
+                st.json(result)
+
+with tabs[1]:
+    st.subheader("📅 Google Calendar Integration Scaffold")
+    show_oauth_status()
+
+    st.markdown("""
+This tab implements the production integration structure without forcing OAuth setup yet.
+
+Production flow:
+
+```txt
+OAuth login
+→ choose calendar
+→ events.insert
+→ store Google event ID
+→ allow update/delete
+```
+""")
+
+    sample = {
+        "title": "Sample Google Calendar event",
+        "start": "2026-05-02T10:00:00+02:00",
+        "end": "2026-05-02T10:30:00+02:00",
+        "description": "Google Calendar integration scaffold.",
+        "location": "",
+    }
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if st.button("Simulate events.insert"):
+            st.json(create_google_calendar_event_stub(sample))
+
+    with col2:
+        if st.button("Simulate events.update"):
+            st.json(update_google_calendar_event_stub("fake_google_event_id", sample))
+
+    with col3:
+        if st.button("Simulate events.delete"):
+            st.json(delete_google_calendar_event_stub("fake_google_event_id"))
+
+with tabs[2]:
+    st.subheader("🗃️ Persistent Local Event Database")
+    st.write("This is the production-ready direction for tracking created, updated, skipped and reviewed events.")
+
+    events = list_events()
+    st.dataframe(events, use_container_width=True)
+
+    if events:
+        selected_id = st.selectbox("Select event ID", [event["id"] for event in events])
 
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("✅ Create .ics calendar file"):
-                output_dir = Path("generated")
-                output_dir.mkdir(exist_ok=True)
-                ics_path = output_dir / "calendar_event.ics"
-                create_ics_file(reviewed_event, ics_path)
-                record_event_created(reviewed_event)
-
-                st.success("Calendar file created.")
-
-                with open(ics_path, "rb") as file:
-                    st.download_button(
-                        "Download .ics file",
-                        data=file,
-                        file_name="calendar_event.ics",
-                        mime="text/calendar",
-                    )
+            if st.button("Mark selected as updated"):
+                update_event_record(selected_id, {"status": "updated"})
+                st.success("Updated.")
 
         with col2:
-            st.info("Future direct Google Calendar insert will live here after OAuth is added.")
-
-with tabs[1]:
-    st.subheader("🔁 Recurring Task Prototype")
-    recurring_input = st.text_area(
-        "Recurring task text",
-        "Minden hétfőn 9-kor nézzem át a heti teendőket.",
-        height=100,
-    )
-
-    if st.button("Detect recurrence"):
-        analysis = analyze_task_system(recurring_input, client, timezone, default_duration)
-        st.json({
-            "recurrence_detected": analysis.get("recurrence_detected", False),
-            "recurrence_rule_suggestion": analysis.get("recurrence_rule_suggestion", ""),
-            "human_review_required": True,
-        })
-
-with tabs[2]:
-    st.subheader("🧠 Smart Task Understanding")
-    smart_input = st.text_area(
-        "Analyze task complexity",
-        "Péntekig készítsek egy rövid videót, küldjem el Katának, és kérjek visszajelzést.",
-        height=120,
-    )
-
-    if st.button("Analyze priority, deadline, effort"):
-        analysis = analyze_task_system(smart_input, client, timezone, default_duration)
-        st.json({
-            "priority": analysis.get("priority", "medium"),
-            "deadline": analysis.get("deadline", ""),
-            "estimated_effort_minutes": analysis.get("estimated_effort_minutes", default_duration),
-            "suggested_subtasks": analysis.get("suggested_subtasks", []),
-            "confidence": analysis.get("confidence", 0.65),
-        })
+            if st.button("Delete selected locally"):
+                delete_event_record(selected_id)
+                st.success("Deleted locally.")
 
 with tabs[3]:
-    st.subheader("📨 Email → Calendar Prototype")
-    st.write("Paste an email or message. The app extracts a calendar-ready follow-up.")
-
+    st.subheader("📨 Gmail / Email Intake Prototype")
     email_text = st.text_area(
-        "Email / message text",
+        "Paste email or message",
         "Szia Alexander, köszi a videót! Tudnánk holnap 11-kor 20 percet beszélni róla?",
         height=160,
     )
 
-    if st.button("Extract follow-up event from email"):
+    if st.button("Extract calendar follow-up"):
         parsed = parse_task_to_event(email_text, client, timezone, default_duration)
-        st.json(parsed)
+        analysis = analyze_task_system(email_text, client, timezone, default_duration)
+        st.json({
+            "parsed_event": parsed,
+            "analysis": analysis,
+            "source": "email_paste",
+            "next_production_step": "Connect Gmail API and pull selected messages into this parser.",
+        })
 
 with tabs[4]:
     st.subheader("🎤 Voice Input Prototype")
-    st.write("Browser voice capture is not implemented in this MVP yet, but this tab defines the product flow.")
+    st.write("Real browser voice recording is a future production layer. Current version accepts dictated text.")
 
-    st.markdown("""
-    **Future flow:**
+    dictated_text = st.text_input(
+        "Paste dictated task",
+        "Holnap délután 3-kor nézzem át a GitHub README-t.",
+    )
 
-    1. User speaks a task
-    2. Speech is transcribed
-    3. AI parses the task
-    4. User reviews
-    5. Calendar event is created
-
-    Current workaround: paste dictated text from your phone or OS speech-to-text.
-    """)
-
-    voice_like_text = st.text_input("Paste dictated text here", "Holnap reggel 9-kor ellenőrizzem a naptár app GitHub repót.")
-    if st.button("Parse dictated text"):
-        st.json(parse_task_to_event(voice_like_text, client, timezone, default_duration))
+    if st.button("Parse dictated task"):
+        st.json(parse_task_to_event(dictated_text, client, timezone, default_duration))
 
 with tabs[5]:
-    st.subheader("🤖 Controlled Automation Prototype")
-    auto_task = st.text_area(
-        "Task for confidence check",
-        "Holnap 10-kor videó elküldése Katának.",
+    st.subheader("🤖 Controlled Automation")
+    automation_task = st.text_area(
+        "Task for confidence decision",
+        "Holnap 10-kor küldjem el Katának a videót.",
         height=100,
     )
 
-    if st.button("Check automation confidence"):
-        analysis = analyze_task_system(auto_task, client, timezone, default_duration)
+    if st.button("Evaluate automation"):
+        analysis = analyze_task_system(automation_task, client, timezone, default_duration)
         confidence = float(analysis.get("confidence", 0.65))
-        decision = "auto-create eligible" if confidence >= confidence_threshold else "requires manual review"
+
+        if confidence >= confidence_threshold:
+            decision = "Eligible for auto-create in production"
+        else:
+            decision = "Manual review required"
 
         st.json({
             "confidence": confidence,
             "threshold": confidence_threshold,
             "decision": decision,
-            "safety_rule": "Even if eligible, this MVP still asks for review before event export.",
+            "safety_rule": "This prototype still keeps user approval before execution.",
         })
 
 with tabs[6]:
-    st.subheader("📊 Analytics & Feedback Loop")
+    st.subheader("📊 Analytics")
     summary = get_analytics_summary()
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Events created", summary["events_created"])
-    col2.metric("Last title", summary["last_title"])
-    col3.metric("System mode", "Human review")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Events created", summary.get("events_created", 0))
+    c2.metric("Suggestions", summary.get("suggestions", 0))
+    c3.metric("Last title", summary.get("last_title", "-"))
+    c4.metric("Mode", "Review-first")
+
+    st.json(summary)
+
+with tabs[7]:
+    st.subheader("📱 Mobile-first UI Prototype")
+    st.write("This tab approximates the mobile quick-add workflow.")
 
     st.markdown("""
-    Future analytics:
+### Quick-add flow
 
-    - created events
-    - edited events
-    - skipped suggestions
-    - rescheduled events
-    - preferred task durations
-    - preferred working hours
-    """)
+```txt
+Open app
+→ type/speak task
+→ AI suggests calendar event
+→ swipe/approve
+→ event created
+```
+""")
+
+    quick_task = st.text_input("Quick task", "Holnap 9-kor reggeli tervezés.")
+    if st.button("Mobile quick parse"):
+        st.json(parse_task_to_event(quick_task, client, timezone, default_duration))
 
 st.divider()
-st.caption("Design principle: AI suggests → human reviews → user approves → system executes.")
+st.caption("Production principle: AI suggests → human reviews → user approves → system executes.")

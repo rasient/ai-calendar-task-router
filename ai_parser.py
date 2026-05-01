@@ -22,7 +22,7 @@ def parse_task_to_event(task_text, client=None, timezone="Europe/Budapest", defa
     if not client:
         return fallback_parse(task_text, timezone, default_duration)
 
-    prompt = f'''
+    prompt = f"""
 You convert user tasks into calendar events.
 
 Return ONLY valid JSON:
@@ -41,7 +41,7 @@ Keep title short.
 
 Task:
 {task_text}
-'''
+"""
 
     try:
         response = client.responses.create(model="gpt-4.1-mini", input=prompt)
@@ -84,7 +84,7 @@ def analyze_task_system(task_text, client=None, timezone="Europe/Budapest", defa
     if not client:
         return fallback_analysis(task_text, default_duration)
 
-    prompt = f'''
+    prompt = f"""
 Analyze this task as a productivity routing system.
 
 Return ONLY valid JSON:
@@ -103,7 +103,7 @@ Default duration: {default_duration}
 
 Task:
 {task_text}
-'''
+"""
 
     try:
         response = client.responses.create(model="gpt-4.1-mini", input=prompt)

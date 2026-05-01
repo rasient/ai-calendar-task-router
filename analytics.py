@@ -7,10 +7,14 @@ ANALYTICS_PATH = Path("generated/analytics.json")
 
 def initialize_analytics():
     ANALYTICS_PATH.parent.mkdir(exist_ok=True)
-
     if not ANALYTICS_PATH.exists():
         ANALYTICS_PATH.write_text(
-            json.dumps({"events_created": 0, "last_title": "-"}, indent=2),
+            json.dumps({
+                "events_created": 0,
+                "suggestions": 0,
+                "last_title": "-",
+                "routes": {},
+            }, indent=2),
             encoding="utf-8",
         )
 
@@ -21,13 +25,23 @@ def _read():
 
 
 def _write(data):
-    ANALYTICS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    ANALYTICS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def record_event_created(event):
     data = _read()
     data["events_created"] = int(data.get("events_created", 0)) + 1
     data["last_title"] = event.get("title", "-")
+    _write(data)
+
+
+def record_suggestion(route):
+    data = _read()
+    data["suggestions"] = int(data.get("suggestions", 0)) + 1
+    destination = route.get("recommended_destination", "unknown")
+    routes = data.get("routes", {})
+    routes[destination] = routes.get(destination, 0) + 1
+    data["routes"] = routes
     _write(data)
 
 

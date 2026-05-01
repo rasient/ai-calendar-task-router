@@ -1,54 +1,53 @@
-# 📅 AI Calendar Task Router Expanded
+# 📅 AI Calendar Task Router — Production Prototype
 
-AI Calendar Task Router converts unstructured tasks into structured, reviewable calendar events and task-routing decisions.
+This version turns the “Recommended next production features” into real app modules and working prototypes.
 
-## Core idea
+## Included production-feature prototypes
+
+### Google Calendar API scaffold
+- OAuth status panel
+- `events.insert` payload preview
+- update/delete stubs
+- clear next step for OAuth
+
+### Persistent local database
+- saves created/reviewed events into local JSON storage
+- lists events
+- update/delete local event records
+
+### User preferences
+- timezone
+- default duration
+- confidence threshold
+- working hours
+
+### Gmail / Email intake
+- paste an email/message
+- extract a calendar-ready follow-up event
+
+### Voice input prototype
+- supports dictated text
+- documents future voice-to-calendar flow
+
+### Controlled automation
+- confidence threshold
+- low confidence → manual review
+- high confidence → eligible for auto-create
+- still review-first for safety
+
+### Analytics
+- event creation count
+- suggestion count
+- route distribution
+- last created event
+
+## Safe architecture
 
 ```txt
-Messy human intention
-→ AI understanding
-→ destination decision
-→ human review
-→ calendar-ready output
+AI suggests → human reviews → user approves → system executes
 ```
 
-## What is included
-
-This version does not only list future features. It turns them into app modules and prototypes.
-
-## App modules
-
-### 1. Task Router
-Routes tasks to calendar, todo, reminder, note, or recurring calendar review.
-
-### 2. Recurring Tasks
-Detects recurrence patterns such as every Monday, daily, minden hétfőn, naponta.
-
-### 3. Smart Understanding
-Extracts priority, deadline, effort estimate, subtasks, and confidence.
-
-### 4. Email → Calendar
-Paste an email/message and extract a calendar-ready follow-up event.
-
-### 5. Voice Input Prototype
-Defines the voice-to-calendar flow and supports pasted dictated text.
-
-### 6. Controlled Automation
-Shows confidence-based automation logic.
-
-### 7. Analytics
-Tracks basic local analytics.
-
-## Current safe MVP
-
-```txt
-Task text
-→ AI parse
-→ Human review
-→ Download .ics file
-```
-
-## Installation
+## Install
 
 ```bash
 pip install -r requirements.txt
@@ -68,23 +67,16 @@ Create `.env`:
 OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-## Recommended next production features
+## Future real production step
 
-- Google Calendar API OAuth
-- Direct `events.insert`
-- Event update/delete
-- Real voice input
-- Gmail integration
-- Persistent database
-- User preference learning
-- Mobile-first UI
-- Confidence threshold automation
+To activate direct Google Calendar creation:
 
-## Design principle
-
-```txt
-AI suggests → human reviews → user approves → system executes
-```
+1. Create Google Cloud project
+2. Enable Google Calendar API
+3. Configure OAuth consent screen
+4. Download `credentials.json`
+5. Implement `google-auth-oauthlib`
+6. Replace stubs with real `events.insert`, `events.update`, `events.delete`
 
 ## Author
 
