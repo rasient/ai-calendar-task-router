@@ -1,3 +1,12 @@
+## 🧠 Part of Systems Lab
+
+This project is part of a broader exploration:
+
+→ understanding how systems behave when treated as interconnected
+
+Main repo:
+https://github.com/rasient/systems-lab
+
 # 📅 AI Calendar Task Router — Real Google Calendar
 
 This version implements real Google Calendar OAuth and `events.insert`.
